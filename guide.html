@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside the Calculator Agent</title>
+<meta name="description" content="A top-down guide to the calculator agent: main.py, agents, the ReAct loop, LangChain's create_agent and the hand-written loop, tools and setup.">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --paper: #ffffff;
+    --ink: #1d2430;
+    --muted: #5b6474;
+    --line: #dfe3ea;
+    --soft: #f1f3f7;
+    --code-bg: #f6f7fa;
+    --you: #b7791f;      --you-soft: #fdf3e1;
+    --prog: #2b6cb0;     --prog-soft: #e6f0fb;
+    --gem: #6b46c1;      --gem-soft: #efe9fb;
+    --tool: #2c7a7b;     --tool-soft: #e3f4f3;
+    --cfg: #718096;      --cfg-soft: #eef1f5;
+    --warn: #c05621;     --warn-soft: #fdeee4;
+    --ok: #2f855a;       --ok-soft: #e6f4ec;
+    --tok-key: #6b46c1; --tok-str: #2f855a; --tok-com: #8a94a6; --tok-num: #c05621; --tok-fn: #2b6cb0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --paper: #1a1e26; --ink: #e6e9ef; --muted: #a0a8b8; --line: #2e3542;
+      --soft: #222833; --code-bg: #161a21;
+      --you: #f6ad55;  --you-soft: #3a2c17;
+      --prog: #63a4ff; --prog-soft: #1b2a40;
+      --gem: #b794f4;  --gem-soft: #2b2340;
+      --tool: #4fd1c5; --tool-soft: #163533;
+      --cfg: #a0aec0;  --cfg-soft: #262c36;
+      --warn: #f6ad55; --warn-soft: #3b2a1a;
+      --ok: #68d391;   --ok-soft: #183427;
+      --tok-key: #b794f4; --tok-str: #68d391; --tok-com: #77829a; --tok-num: #f6ad55; --tok-fn: #63a4ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --paper: #1a1e26; --ink: #e6e9ef; --muted: #a0a8b8; --line: #2e3542;
+    --soft: #222833; --code-bg: #161a21;
+    --you: #f6ad55;  --you-soft: #3a2c17;
+    --prog: #63a4ff; --prog-soft: #1b2a40;
+    --gem: #b794f4;  --gem-soft: #2b2340;
+    --tool: #4fd1c5; --tool-soft: #163533;
+    --cfg: #a0aec0;  --cfg-soft: #262c36;
+    --warn: #f6ad55; --warn-soft: #3b2a1a;
+    --ok: #68d391;   --ok-soft: #183427;
+    --tok-key: #b794f4; --tok-str: #68d391; --tok-com: #77829a; --tok-num: #f6ad55; --tok-fn: #63a4ff;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 96px; }
+  header.cover { padding: 64px 0 32px; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
+  .kicker { color: var(--gem); font-weight: 650; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+  h1 { font-size: clamp(32px, 6vw, 46px); line-height: 1.1; margin: 10px 0 14px; letter-spacing: -0.02em; }
+  h2 { font-size: 28px; margin: 64px 0 8px; letter-spacing: -0.01em; scroll-margin-top: 16px; }
+  h2 .num { color: var(--muted); font-weight: 500; margin-right: 10px; }
+  h3 { font-size: 20px; margin: 36px 0 6px; }
+  p, li { color: var(--ink); }
+  .lede { font-size: 19px; color: var(--muted); }
+  a { color: var(--prog); }
+  code, pre, .mono { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
+  :not(pre) > code { background: var(--soft); padding: 1px 6px; border-radius: 5px; font-size: .88em; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.55; margin: 14px 0;
+  }
+  .codehead {
+    display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted);
+    margin: 18px 0 -8px; font-family: "SF Mono", Menlo, monospace;
+  }
+  .hljs-keyword, .hljs-built_in, .hljs-literal { color: var(--tok-key); }
+  .hljs-string { color: var(--tok-str); }
+  .hljs-comment { color: var(--tok-com); font-style: italic; }
+  .hljs-number { color: var(--tok-num); }
+  .hljs-title, .hljs-title.function_ { color: var(--tok-fn); }
+  .hljs-meta { color: var(--tok-num); }
+
+  nav.toc { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+  nav.toc li { break-inside: avoid; margin: 2px 0; }
+  @media (max-width: 620px) { nav.toc ol { columns: 1; } }
+
+  .callout { border-left: 4px solid var(--gem); background: var(--gem-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+  .callout.tip { border-color: var(--ok); background: var(--ok-soft); }
+  .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .callout b:first-child { display: block; margin-bottom: 2px; }
+
+  figure { margin: 24px 0; background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  figure .scroll { overflow-x: auto; }
+  figure svg { display: block; width: 100%; min-width: 560px; height: auto; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+  /* SVG styling, theme-aware */
+  .d-text { fill: var(--ink); font: 600 15px -apple-system, "Segoe UI", sans-serif; }
+  .d-sub { fill: var(--muted); font: 13px -apple-system, "Segoe UI", sans-serif; }
+  .d-mono { fill: var(--ink); font: 12.5px "SF Mono", Menlo, monospace; }
+  .d-label { fill: var(--muted); font: italic 12.5px -apple-system, "Segoe UI", sans-serif; }
+  .d-line { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+  .d-dash { stroke: var(--cfg); stroke-width: 1.4; fill: none; stroke-dasharray: 5 5; }
+  .d-life { stroke: var(--line); stroke-width: 2; stroke-dasharray: 3 5; }
+  .b-you { fill: var(--you-soft); stroke: var(--you); stroke-width: 1.6; }
+  .b-prog { fill: var(--prog-soft); stroke: var(--prog); stroke-width: 1.6; }
+  .b-gem { fill: var(--gem-soft); stroke: var(--gem); stroke-width: 1.6; }
+  .b-tool { fill: var(--tool-soft); stroke: var(--tool); stroke-width: 1.6; }
+  .b-cfg { fill: var(--cfg-soft); stroke: var(--cfg); stroke-width: 1.4; }
+  .b-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.6; }
+  .b-plain { fill: var(--soft); stroke: var(--line); stroke-width: 1.4; }
+  .s-prog { stroke: var(--prog); } .s-gem { stroke: var(--gem); } .s-tool { stroke: var(--tool); } .s-you { stroke: var(--you); } .s-ok { stroke: var(--ok); }
+  .f-prog { fill: var(--prog); } .f-gem { fill: var(--gem); } .f-tool { fill: var(--tool); } .f-you { fill: var(--you); } .f-ok { fill: var(--ok); } .f-muted { fill: var(--muted); }
+
+  /* message timeline */
+  .timeline { display: grid; gap: 10px; margin: 20px 0; }
+  .msg { display: grid; grid-template-columns: 132px 1fr; gap: 12px; align-items: start;
+         background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  .msg .role { font-weight: 650; font-size: 13px; border-radius: 999px; padding: 3px 10px; text-align: center; align-self: center; }
+  .msg .body { font-size: 15px; }
+  .msg .body .mono { font-size: 13.5px; }
+  .r-system { background: var(--cfg-soft); color: var(--cfg); }
+  .r-human { background: var(--you-soft); color: var(--you); }
+  .r-ai { background: var(--gem-soft); color: var(--gem); }
+  .r-tool { background: var(--tool-soft); color: var(--tool); }
+  .msg .note { color: var(--muted); font-size: 13px; }
+  @media (max-width: 560px) { .msg { grid-template-columns: 1fr; } .msg .role { justify-self: start; } }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  @media (max-width: 680px) { .compare { grid-template-columns: 1fr; } }
+  .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .panel h4 { margin: 0 0 4px; font-size: 16px; }
+  .panel .tag { display: inline-block; font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 999px; margin-bottom: 8px; }
+  .panel pre { margin: 8px 0; font-size: 13px; }
+  .panel p { margin: 6px 0; font-size: 15px; color: var(--muted); }
+
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  .table-scroll { overflow-x: auto; }
+  td .yes { color: var(--ok); font-weight: 700; } td .no { color: var(--muted); }
+
+  dl.glossary dt { font-weight: 650; margin-top: 14px; }
+  dl.glossary dd { margin: 2px 0 0 0; color: var(--muted); }
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps li { counter-increment: s; margin: 14px 0; }
+  .steps li::before { content: "Step " counter(s) ". "; font-weight: 700; }
+  footer { margin-top: 72px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <div class="kicker">calculatoragent · a guided tour</div>
+  <h1>Inside the Calculator Agent</h1>
+  <p class="lede">This guide explains every part of the calculator agent, from the first line that runs to the last.
+  It assumes you've never seen an AI agent, LangChain or the "ReAct loop" before. It starts where the program
+  starts, in <code>main.py</code>, and goes one level deeper in each chapter.</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#what">What the program does</a></li>
+    <li><a href="#big-picture">The big picture</a></li>
+    <li><a href="#concepts">Ideas you need first</a></li>
+    <li><a href="#main">main.py: where it starts</a></li>
+    <li><a href="#agent">agent.py: the two agents</a></li>
+    <li><a href="#run">run(): the agent LangChain builds</a></li>
+    <li><a href="#run2">run2(): the same loop by hand</a></li>
+    <li><a href="#langchain">What LangChain adds</a></li>
+    <li><a href="#tools">tools.py: the arithmetic</a></li>
+    <li><a href="#config">config.py: setup</a></li>
+    <li><a href="#errors">When things go wrong</a></li>
+    <li><a href="#setup">Running it yourself</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="what"><span class="num">1</span>What the program does</h2>
+
+<p>You type an arithmetic instruction in ordinary English. The program works it out and replies in ordinary English.
+Here is a real session (the answers are what Gemini actually wrote):</p>
+
+<pre class="nohighlight">$ .venv/bin/python main.py
+What would you like to calculate? (type quit or exit to stop) add 2 to 5 then divide the result by 3.5
+[create_agent] I added 2 to 5 to get 7, and then divided that result by 3.5. The final result is 2.
+[hand-written loop] First, I added 2 to 5 to get 7, and then I divided that result by 3.5 to arrive at the final answer of 2.
+
+What would you like to calculate? (type quit or exit to stop) quit</pre>
+
+<p>Two things are worth noticing straight away:</p>
+<ul>
+  <li><strong>Two answers come back.</strong> The program contains two versions of the same agent, one built for us by
+  a library called LangChain and one written out by hand, and it runs both on every instruction so you can compare them.
+  Most of this guide is about how they work and how they differ.</li>
+  <li><strong>The AI never does the arithmetic.</strong> The AI model, Google's <em>Gemini</em>, reads your sentence
+  and decides the <em>steps</em>: "first add 2 and 5, then divide by 3.5". Ordinary Python code does each calculation.
+  Language models are good at understanding sentences and unreliable at arithmetic, so each does what it's good at.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="big-picture"><span class="num">2</span>The big picture</h2>
+
+<p>The program is four Python files. Here is who talks to whom:</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 330" role="img" aria-labelledby="fig1t">
+  <title id="fig1t">The calculator's parts: you, main.py, agent.py, Gemini, tools.py and config.py</title>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker>
+    <marker id="ah-gem" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-gem"/></marker>
+    <marker id="ah-tool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-tool"/></marker>
+  </defs>
+
+  <!-- You -->
+  <rect x="16" y="112" width="132" height="76" rx="14" class="b-you"/>
+  <text x="82" y="144" text-anchor="middle" class="d-text">You</text>
+  <text x="82" y="166" text-anchor="middle" class="d-sub">type an instruction</text>
+
+  <!-- main.py -->
+  <rect x="196" y="112" width="140" height="76" rx="14" class="b-prog"/>
+  <text x="266" y="144" text-anchor="middle" class="d-text">main.py</text>
+  <text x="266" y="166" text-anchor="middle" class="d-sub">asks and prints</text>
+
+  <!-- agent.py -->
+  <rect x="384" y="92" width="170" height="116" rx="14" class="b-prog"/>
+  <text x="469" y="122" text-anchor="middle" class="d-text">agent.py</text>
+  <text x="469" y="148" text-anchor="middle" class="d-sub">run(): create_agent</text>
+  <text x="469" y="170" text-anchor="middle" class="d-sub">run2(): hand-written</text>
+  <text x="469" y="192" text-anchor="middle" class="d-label">the agent loop</text>
+
+  <!-- Gemini -->
+  <rect x="604" y="16" width="140" height="84" rx="40" class="b-gem"/>
+  <text x="674" y="52" text-anchor="middle" class="d-text">Gemini</text>
+  <text x="674" y="74" text-anchor="middle" class="d-sub">decides the steps</text>
+  <text x="674" y="118" text-anchor="middle" class="d-label">Google's servers</text>
+
+  <!-- tools.py -->
+  <rect x="604" y="196" width="140" height="84" rx="14" class="b-tool"/>
+  <text x="674" y="228" text-anchor="middle" class="d-text">tools.py</text>
+  <text x="674" y="250" text-anchor="middle" class="d-sub">add · subtract</text>
+  <text x="674" y="268" text-anchor="middle" class="d-sub">multiply · divide</text>
+
+  <!-- config.py -->
+  <rect x="384" y="252" width="170" height="60" rx="12" class="b-cfg"/>
+  <text x="469" y="278" text-anchor="middle" class="d-text">config.py</text>
+  <text x="469" y="298" text-anchor="middle" class="d-sub">key · model · log</text>
+
+  <!-- arrows -->
+  <path d="M148 138 H192" class="d-line" marker-end="url(#ah)"/>
+  <path d="M196 164 H152" class="d-line" marker-end="url(#ah)"/>
+  <text x="172" y="128" text-anchor="middle" class="d-label">ask</text>
+  <text x="172" y="182" text-anchor="middle" class="d-label">answer</text>
+
+  <path d="M336 150 H380" class="d-line" marker-end="url(#ah)"/>
+
+  <path d="M554 116 C 580 100, 590 80, 602 66" class="d-line s-gem" stroke-width="1.8" marker-end="url(#ah-gem)"/>
+  <path d="M606 88 C 592 106, 582 120, 556 132" class="d-line s-gem" stroke-width="1.8" marker-end="url(#ah-gem)"/>
+  <text x="566" y="86" class="d-label" text-anchor="end">conversation</text>
+  <text x="590" y="142" class="d-label">tool requests</text>
+
+  <path d="M554 172 C 580 190, 590 210, 602 226" class="d-line s-tool" stroke-width="1.8" marker-end="url(#ah-tool)"/>
+  <path d="M604 254 C 588 236, 578 214, 556 190" class="d-line s-tool" stroke-width="1.8" marker-end="url(#ah-tool)"/>
+  <text x="674" y="300" class="d-label" text-anchor="middle">run tool · get result</text>
+
+  <path d="M469 252 V212" class="d-dash" marker-end="url(#ah)"/>
+</svg>
+</div>
+<figcaption>Your instruction goes in through <code>main.py</code>. <code>agent.py</code> runs the conversation with Gemini
+and runs the tools Gemini asks for. <code>config.py</code> supplies the key, the model and the log file to everything.</figcaption>
+</figure>
+
+<p>The chapters follow the same path: <code>main.py</code> first, then <code>agent.py</code> (the heart of it), then the
+<code>tools.py</code> it calls, then the <code>config.py</code> underneath everything. Before that, a few ideas you'll need.</p>
+
+<!-- ============================================================ -->
+<h2 id="concepts"><span class="num">3</span>Ideas you need first</h2>
+
+<h3>A language model is a text predictor you talk to over the internet</h3>
+<p>Gemini is a <em>large language model</em> (LLM). You send it text; it sends back the text it judges most likely to
+come next. Trained on enormous amounts of writing, that's enough for it to follow instructions, answer questions and
+write explanations. It runs on Google's computers: our program sends it a request over the internet and waits for the
+reply, usually a few seconds.</p>
+<p>Two properties matter here. It <strong>doesn't remember anything between requests</strong>: every request must contain
+the whole conversation so far. And it's <strong>not a calculator</strong>: it predicts plausible text, so "7 ÷ 3.5" usually
+comes back as "2", but nothing guarantees it.</p>
+
+<h3>A system prompt is the standing instructions</h3>
+<p>Each request can start with instructions the user doesn't see: the <em>system prompt</em>. Ours says, in effect,
+"you're a calculator; do every step with a tool; never calculate yourself; explain the result in a sentence or two".</p>
+
+<h3>A tool is a function the model may ask you to run</h3>
+<p>Along with the conversation, a request can include a list of <em>tools</em>: each one a name, a description and the
+inputs it takes. For example: "<code>divide</code>: divide a by b; inputs a and b, both numbers". The model can then reply
+not with text but with a request: "please run <code>divide</code> with a = 7 and b = 3.5".</p>
+<div class="callout"><b>The model never runs anything itself.</b>
+It only <em>asks</em>. Our program runs the function, then sends the result back in the next request. This back-and-forth is
+called <em>function calling</em> or <em>tool calling</em>.</div>
+
+<p>Here is the round trip for the example instruction, as it really happened:</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 470" role="img" aria-labelledby="fig2t">
+  <title id="fig2t">Three rounds of tool calling between the program, Gemini and the tools</title>
+  <defs>
+    <marker id="sq-gem" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-gem"/></marker>
+    <marker id="sq-prog" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-prog"/></marker>
+    <marker id="sq-tool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-tool"/></marker>
+  </defs>
+  <!-- headers -->
+  <rect x="150" y="14" width="150" height="42" rx="10" class="b-prog"/><text x="225" y="41" text-anchor="middle" class="d-text">Our program</text>
+  <rect x="420" y="14" width="130" height="42" rx="21" class="b-gem"/><text x="485" y="41" text-anchor="middle" class="d-text">Gemini</text>
+  <rect x="620" y="14" width="120" height="42" rx="10" class="b-tool"/><text x="680" y="41" text-anchor="middle" class="d-text">Tools</text>
+  <line x1="225" y1="56" x2="225" y2="456" class="d-life"/>
+  <line x1="485" y1="56" x2="485" y2="456" class="d-life"/>
+  <line x1="680" y1="56" x2="680" y2="456" class="d-life"/>
+
+  <!-- round bands -->
+  <rect x="14" y="70" width="120" height="118" rx="10" class="b-plain"/><text x="74" y="124" text-anchor="middle" class="d-text">Round 1</text><text x="74" y="144" text-anchor="middle" class="d-sub">add</text>
+  <rect x="14" y="200" width="120" height="118" rx="10" class="b-plain"/><text x="74" y="254" text-anchor="middle" class="d-text">Round 2</text><text x="74" y="274" text-anchor="middle" class="d-sub">divide</text>
+  <rect x="14" y="330" width="120" height="118" rx="10" class="b-plain"/><text x="74" y="384" text-anchor="middle" class="d-text">Round 3</text><text x="74" y="404" text-anchor="middle" class="d-sub">answer</text>
+
+  <!-- round 1 -->
+  <path d="M227 86 H481" class="d-line s-gem" marker-end="url(#sq-gem)"/><text x="354" y="80" text-anchor="middle" class="d-mono">instruction + list of tools</text>
+  <path d="M483 120 H229" class="d-line s-prog" marker-end="url(#sq-prog)"/><text x="354" y="114" text-anchor="middle" class="d-mono">please run add(a=2, b=5)</text>
+  <path d="M227 148 H676" class="d-line s-tool" marker-end="url(#sq-tool)"/><text x="580" y="142" text-anchor="middle" class="d-mono">add(2, 5)</text>
+  <path d="M678 176 H229" class="d-line s-tool" marker-end="url(#sq-tool)"/><text x="580" y="170" text-anchor="middle" class="d-mono">"7"</text>
+
+  <!-- round 2 -->
+  <path d="M227 216 H481" class="d-line s-gem" marker-end="url(#sq-gem)"/><text x="354" y="210" text-anchor="middle" class="d-mono">everything so far + "7"</text>
+  <path d="M483 250 H229" class="d-line s-prog" marker-end="url(#sq-prog)"/><text x="354" y="244" text-anchor="middle" class="d-mono">please run divide(a=7, b=3.5)</text>
+  <path d="M227 278 H676" class="d-line s-tool" marker-end="url(#sq-tool)"/><text x="580" y="272" text-anchor="middle" class="d-mono">divide(7, 3.5)</text>
+  <path d="M678 306 H229" class="d-line s-tool" marker-end="url(#sq-tool)"/><text x="580" y="300" text-anchor="middle" class="d-mono">"2"</text>
+
+  <!-- round 3 -->
+  <path d="M227 346 H481" class="d-line s-gem" marker-end="url(#sq-gem)"/><text x="354" y="340" text-anchor="middle" class="d-mono">everything so far + "2"</text>
+  <path d="M483 384 H229" class="d-line s-prog" marker-end="url(#sq-prog)"/><text x="354" y="378" text-anchor="middle" class="d-mono">a plain-English answer</text>
+  <rect x="160" y="400" width="410" height="40" rx="10" class="b-ok"/>
+  <text x="365" y="425" text-anchor="middle" class="d-sub">no tool requested → the conversation is finished</text>
+</svg>
+</div>
+<figcaption>Three requests to Gemini. In the first two, Gemini answers with a tool request; our program runs the tool and
+sends the result back. In the third, Gemini answers with text, which means it's done.</figcaption>
+</figure>
+
+<h3>An agent is a program that runs this loop until the job is done</h3>
+<p>"Ask the model, run what it asks for, send the results back, ask again" is the whole idea of an <em>AI agent</em>.
+The model plays the part of the decision-maker; the program does the actual work and keeps the conversation going.
+The loop stops when the model replies with an answer instead of a tool request.</p>
+
+<h3>The ReAct loop: reason, act, observe, repeat</h3>
+<p>This pattern has a name. In 2022 a research paper called <em>"ReAct: Synergizing Reasoning and Acting in Language
+Models"</em> (Yao and colleagues) showed that models solve multi-step problems much better when they alternate between
+<strong>reasoning</strong> about what to do next and <strong>acting</strong> (using a tool), then look at what the action
+produced before reasoning again. "ReAct" is short for <em>Re</em>ason + <em>Act</em>.</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 330" role="img" aria-labelledby="fig3t">
+  <title id="fig3t">The ReAct loop: think, act, observe, and finish with an answer</title>
+  <defs>
+    <marker id="rl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker>
+    <marker id="rl-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-ok"/></marker>
+  </defs>
+  <!-- Think -->
+  <rect x="210" y="18" width="200" height="84" rx="42" class="b-gem"/>
+  <text x="310" y="52" text-anchor="middle" class="d-text">1. Think</text>
+  <text x="310" y="74" text-anchor="middle" class="d-sub">Gemini reads the conversation</text>
+  <text x="310" y="92" text-anchor="middle" class="d-sub">and decides the next step</text>
+  <!-- Act -->
+  <rect x="400" y="210" width="200" height="84" rx="16" class="b-tool"/>
+  <text x="500" y="244" text-anchor="middle" class="d-text">2. Act</text>
+  <text x="500" y="266" text-anchor="middle" class="d-sub">our program runs</text>
+  <text x="500" y="284" text-anchor="middle" class="d-sub">the tool it asked for</text>
+  <!-- Observe -->
+  <rect x="20" y="210" width="200" height="84" rx="16" class="b-prog"/>
+  <text x="120" y="244" text-anchor="middle" class="d-text">3. Observe</text>
+  <text x="120" y="266" text-anchor="middle" class="d-sub">the result is added</text>
+  <text x="120" y="284" text-anchor="middle" class="d-sub">to the conversation</text>
+  <!-- Answer -->
+  <rect x="580" y="30" width="160" height="60" rx="14" class="b-ok"/>
+  <text x="660" y="57" text-anchor="middle" class="d-text">Answer</text>
+  <text x="660" y="77" text-anchor="middle" class="d-sub">loop ends</text>
+
+  <path d="M380 100 C 440 130, 480 160, 495 206" class="d-line" stroke-width="2" marker-end="url(#rl)"/>
+  <text x="470" y="150" class="d-label">needs a tool</text>
+  <path d="M398 252 H226" class="d-line" stroke-width="2" marker-end="url(#rl)"/>
+  <text x="312" y="244" text-anchor="middle" class="d-label">tool result</text>
+  <path d="M125 206 C 140 160, 180 120, 240 100" class="d-line" stroke-width="2" marker-end="url(#rl)"/>
+  <text x="138" y="150" class="d-label" text-anchor="end">think again</text>
+  <path d="M410 60 H576" class="d-line s-ok" stroke-width="2" marker-end="url(#rl-ok)"/>
+  <text x="493" y="52" text-anchor="middle" class="d-label">no tool needed</text>
+</svg>
+</div>
+<figcaption>Our example goes round twice (add, then divide) and leaves on the third "Think", when Gemini has nothing
+left to calculate.</figcaption>
+</figure>
+
+<h3>Then and now: how the model "asks" for a tool</h3>
+<p>In 2022, models had no built-in way to request a tool, so the model was told to write its reasoning and actions as
+plain text in a fixed format, and the program picked the text apart. Today, models like Gemini support tool requests
+directly: they arrive as structured data, not prose. This program uses the modern kind.</p>
+
+<div class="compare">
+  <div class="panel">
+    <span class="tag r-human">2022: text-based ReAct</span>
+    <h4>The model writes a script</h4>
+<pre class="nohighlight">Thought: I need to add 2 and 5.
+Action: add
+Action Input: 2, 5
+Observation: 7
+Thought: Now divide 7 by 3.5.
+...</pre>
+    <p>The program has to find "Action:" in the text and guess where the inputs start and stop. A stray word breaks it,
+    and tools with several inputs are awkward.</p>
+  </div>
+  <div class="panel">
+    <span class="tag r-ai">Today: native tool calling</span>
+    <h4>The model sends a request</h4>
+<pre class="nohighlight">{"name": "add",
+ "args": {"a": 2, "b": 5},
+ "id": "call_1654457..."}</pre>
+    <p>The name and inputs arrive as data, checked against the tool's description. The "reasoning" still happens, inside
+    the model, before it decides on the request. This is what both versions of our agent use.</p>
+  </div>
+</div>
+
+<h3>The conversation is a list of messages</h3>
+<p>Because Gemini remembers nothing, the agent keeps the conversation as a list and sends the whole list each time.
+Every entry is a <em>message</em> with a role. These are the four kinds, as the LangChain library names them:</p>
+
+<div class="timeline">
+  <div class="msg"><span class="role r-system">SystemMessage</span><div class="body">The standing instructions (the system prompt).</div></div>
+  <div class="msg"><span class="role r-human">HumanMessage</span><div class="body">What you typed.</div></div>
+  <div class="msg"><span class="role r-ai">AIMessage</span><div class="body">Gemini's reply: either tool requests (<code>tool_calls</code>) or the final text.</div></div>
+  <div class="msg"><span class="role r-tool">ToolMessage</span><div class="body">A tool's result, labelled with the id of the request it answers, so Gemini can match them up.</div></div>
+</div>
+
+<p>Here is the real conversation from the example, after it finished. Read it top to bottom: it is the sequence
+diagram above, written as data.</p>
+
+<div class="timeline">
+  <div class="msg"><span class="role r-human">HumanMessage</span><div class="body"><span class="mono">add 2 to 5 then divide the result by 3.5</span></div></div>
+  <div class="msg"><span class="role r-ai">AIMessage</span><div class="body">tool request: <span class="mono">add(a=2, b=5)</span>, id <span class="mono">call_1654457…</span><div class="note">no text: Gemini isn't finished</div></div></div>
+  <div class="msg"><span class="role r-tool">ToolMessage</span><div class="body"><span class="mono">7</span><div class="note">from add, answering call_1654457…</div></div></div>
+  <div class="msg"><span class="role r-ai">AIMessage</span><div class="body">tool request: <span class="mono">divide(a=7, b=3.5)</span>, id <span class="mono">call_6040205…</span></div></div>
+  <div class="msg"><span class="role r-tool">ToolMessage</span><div class="body"><span class="mono">2</span><div class="note">from divide, answering call_6040205…</div></div></div>
+  <div class="msg"><span class="role r-ai">AIMessage</span><div class="body">"I added 2 to 5 to get 7, and then divided that result by 3.5. The final result is 2."<div class="note">no tool requests: this is the final answer</div></div></div>
+</div>
+
+<h3>LangChain is a toolkit for building this</h3>
+<p><em>LangChain</em> is an open-source Python library for programs that use language models. It gives you ready-made
+pieces: a uniform way to talk to many different models (Gemini, Claude, GPT and others), message classes, a way to
+turn ordinary Python functions into tools, and a ready-made agent loop called <code>create_agent</code>. Its sister
+library <em>LangGraph</em> is what that agent loop is built on. Chapter 8 lists exactly what you get.</p>
+
+<!-- ============================================================ -->
+<h2 id="main"><span class="num">4</span>main.py: where it starts</h2>
+
+<p>When you run <code>python main.py</code>, Python runs this file from the top. Most of it only defines things; the
+last two lines actually start the program:</p>
+
+<div class="codehead"><span>main.py</span><span>lines 68–69</span></div>
+<pre><code class="language-python">if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))</code></pre>
+
+<p><code>__name__ == "__main__"</code> is true only when this file is the one you ran (not when another file imports it).
+<code>sys.argv</code> is the list of words typed on the command line, so <code>sys.argv[1:]</code> is everything after
+<code>main.py</code>. There are no options, so it should be empty: instructions are typed when the program asks. Whatever
+number <code>main</code> returns becomes the program's exit status: 0 means "fine".</p>
+
+<h3>main(): asking, over and over</h3>
+
+<div class="codehead"><span>main.py</span><span>lines 39–65</span></div>
+<pre><code class="language-python">def main(args):
+    """args is the list of words typed after `python main.py`. There are no options, so it should be
+    empty: instructions are typed when the program asks for them."""
+
+    # 1. Nothing should follow main.py.
+    if len(args) &gt; 0:
+        print(f"error: didn't understand {' '.join(args)!r}. Run main.py on its own and type your\n"
+              "instruction when asked.", file=sys.stderr)
+        return 1
+
+    # 2. Keep asking until the user stops.
+    while True:
+        # 2a. Ask. Ctrl-D or Ctrl-C stops, and so does running out of input.
+        try:
+            instruction = input(PROMPT).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+
+        # 2b. quit or exit (in any capitals) stops.
+        if instruction.lower() in STOP_WORDS:
+            return 0
+
+        # 2c. Calculate. A blank line just asks again.
+        if instruction:
+            calculate(instruction)
+            print()</code></pre>
+
+<ul>
+  <li><strong>Step 1:</strong> if anything was typed after <code>main.py</code>, it says so and stops, explaining that
+  instructions are typed when asked.</li>
+  <li><strong>Step 2 loops forever</strong> (<code>while True</code>), asking with <code>input(PROMPT)</code>. The prompt
+  text is <code>"What would you like to calculate? (type quit or exit to stop) "</code>.</li>
+  <li><code>.strip()</code> removes spaces at the ends. <code>.lower()</code> means <code>QUIT</code> and <code>Exit</code>
+  stop it too, because <code>STOP_WORDS</code> is <code>{"quit", "exit"}</code>.</li>
+  <li><strong>Ctrl-D</strong> ("end of input") and <strong>Ctrl-C</strong> ("interrupt") would normally crash with an error;
+  catching <code>EOFError</code> and <code>KeyboardInterrupt</code> turns them into a quiet exit.</li>
+  <li><strong>Feeding it text instead of typing:</strong> <code>input()</code> reads <em>standard input</em>, which is
+  normally the keyboard, but the shell can connect it to text instead:
+  <code>python main.py &lt;&lt;&lt; 'multiply 3 by 4'</code>. When the text runs out, that's "end of input" too, so the
+  program stops as if you'd typed <code>quit</code>. (This only works from your own shell: a cloud task has no input
+  attached.)</li>
+  <li><strong>An empty line</strong> fails the <code>if instruction:</code> test (an empty string counts as false), so it just
+  asks again.</li>
+</ul>
+
+<h3>calculate(): run both versions</h3>
+
+<div class="codehead"><span>main.py</span><span>lines 28–36</span></div>
+<pre><code class="language-python">def calculate(instruction):
+    """Run the instruction through both versions and print what each returns."""
+    # 1. The version built by create_agent.
+    answer, error = run(instruction)
+    print("[create_agent]", answer or f"error: {error}")
+
+    # 2. The hand-written version.
+    answer, error = run2(instruction)
+    print("[hand-written loop]", answer or f"error: {error}")</code></pre>
+
+<p>Both <code>run</code> and <code>run2</code> come from <code>agent.py</code> and follow the same rule: they return a
+<strong>pair</strong>, <code>(answer, None)</code> if they succeeded or <code>(None, error)</code> if they failed.
+They never crash. <code>answer, error = run(...)</code> unpacks the pair into two variables.</p>
+<p><code>answer or f"error: {error}"</code> means "the answer if there is one, otherwise the word error and the reason".
+That's all <code>main.py</code> does. The interesting part is inside <code>run</code> and <code>run2</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="agent"><span class="num">5</span>agent.py: the two agents</h2>
+
+<p><code>agent.py</code> holds both versions of the agent, and two things they share.</p>
+
+<h3>The system prompt</h3>
+<div class="codehead"><span>agent.py</span><span>lines 17–21</span></div>
+<pre><code class="language-python">SYSTEM_PROMPT = """You are a calculator. Work through the user's instruction one step at a time, in the order given.
+Do every calculation with a tool (add, subtract, multiply, divide), one operation per call, and never
+calculate anything yourself. Use each result in the next step, exactly as the tool returned it.
+When you're done, answer in one or two plain English sentences: what you did, step by step, and the
+final result. If a tool returns an error, stop and explain the error instead."""</code></pre>
+
+<p>Every sentence has a job:</p>
+<ul>
+  <li><em>"one step at a time, in the order given"</em>: "add 2 to 5 <strong>then</strong> divide" must not become "divide, then add".</li>
+  <li><em>"never calculate anything yourself"</em>: the whole point of the tools.</li>
+  <li><em>"exactly as the tool returned it"</em>: so Gemini passes on "2", not its own rounding of it.</li>
+  <li><em>"If a tool returns an error, stop and explain"</em>: so dividing by zero produces an explanation, not a guess.</li>
+</ul>
+<div class="callout warn"><b>These are requests, not rules.</b>
+Nothing in the code forces Gemini to obey the system prompt. In practice it does, and the log (chapter 11) shows every
+tool call, so you can check that it really used the tools.</div>
+
+<h3>The list of tools</h3>
+<div class="codehead"><span>agent.py</span><span>line 23</span></div>
+<pre><code class="language-python">TOOLS = [add, subtract, multiply, divide]</code></pre>
+<p>The four tools from <code>tools.py</code> (chapter 9). Both versions offer Gemini exactly this list.</p>
+
+<!-- ============================================================ -->
+<h2 id="run"><span class="num">6</span>run(): the agent LangChain builds</h2>
+
+<p>The first version takes one line to build:</p>
+
+<div class="codehead"><span>agent.py</span><span>line 32</span></div>
+<pre><code class="language-python">agent = create_agent(llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT)</code></pre>
+
+<p>You give <code>create_agent</code> a model (<code>llm</code>, Gemini, set up in <code>config.py</code>), the tools and the
+system prompt. It gives back a finished agent, with the whole ReAct loop inside it.</p>
+
+<h3>What create_agent actually builds</h3>
+<p>Under the surface it builds a small <em>graph</em> with LangGraph: boxes ("nodes") that do work, joined by arrows
+("edges") that say what happens next. This is the real graph from our agent:</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 290" role="img" aria-labelledby="fig4t">
+  <title id="fig4t">The graph create_agent builds: start, model, tools and end</title>
+  <defs>
+    <marker id="g1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker>
+    <marker id="g-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-ok"/></marker>
+    <marker id="g-tool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-tool"/></marker>
+    <marker id="g-gem" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-gem"/></marker>
+  </defs>
+  <rect x="20" y="122" width="120" height="46" rx="23" class="b-plain"/>
+  <text x="80" y="150" text-anchor="middle" class="d-mono">__start__</text>
+
+  <rect x="220" y="104" width="180" height="82" rx="16" class="b-gem"/>
+  <text x="310" y="138" text-anchor="middle" class="d-text">model</text>
+  <text x="310" y="160" text-anchor="middle" class="d-sub">ask Gemini, with</text>
+  <text x="310" y="177" text-anchor="middle" class="d-sub">the system prompt</text>
+
+  <rect x="470" y="190" width="170" height="82" rx="16" class="b-tool"/>
+  <text x="555" y="224" text-anchor="middle" class="d-text">tools</text>
+  <text x="555" y="246" text-anchor="middle" class="d-sub">run every tool</text>
+  <text x="555" y="263" text-anchor="middle" class="d-sub">Gemini asked for</text>
+
+  <rect x="620" y="30" width="120" height="46" rx="23" class="b-ok"/>
+  <text x="680" y="58" text-anchor="middle" class="d-mono">__end__</text>
+
+  <path d="M140 145 H216" class="d-line" stroke-width="2" marker-end="url(#g1)"/>
+  <text x="178" y="136" text-anchor="middle" class="d-label">request</text>
+
+  <path d="M400 128 C 470 110, 540 80, 616 58" class="d-line s-ok" stroke-width="2" marker-end="url(#g-ok)"/>
+  <text x="470" y="74" text-anchor="middle" class="d-label">no tool calls</text>
+
+  <path d="M392 186 C 420 220, 440 232, 466 232" class="d-line s-tool" stroke-width="2" marker-end="url(#g-tool)"/>
+  <text x="404" y="236" text-anchor="end" class="d-label">tool calls</text>
+
+  <path d="M600 190 C 600 130, 520 140, 404 150" class="d-line s-gem" stroke-width="2" marker-end="url(#g-gem)"/>
+  <text x="640" y="150" text-anchor="middle" class="d-label">results added</text>
+</svg>
+</div>
+<figcaption>The real nodes and edges of our agent: <code>__start__ → model</code>, then <code>model</code> goes either to
+<code>tools</code> (Gemini asked for tools) or to <code>__end__</code> (it didn't), and <code>tools</code> always returns to
+<code>model</code>. It's the ReAct loop, drawn as a graph.</figcaption>
+</figure>
+
+<p>The graph carries a <em>state</em> from node to node: for this agent, just the list of messages. The <code>model</code>
+node adds Gemini's reply to it; the <code>tools</code> node adds the tool results.</p>
+
+<h3>run(), line by line</h3>
+<div class="codehead"><span>agent.py</span><span>lines 35–58</span></div>
+<pre><code class="language-python">def run(instruction):
+    """The agent built by create_agent."""
+    log.info("run: %s", instruction)
+    # 1. Run the whole agent loop. It comes back when Gemini replies without asking for a tool.
+    try:
+        state = agent.invoke({"messages": [("user", instruction)]}, config={"recursion_limit": MAX_AGENT_STEPS})
+    except GraphRecursionError:
+        # 2. It went round too many times: stop.
+        log.error("run: took more than %d steps; stopped", MAX_AGENT_STEPS)
+        return None, "The agent took too many steps and was stopped. Try a shorter instruction."
+    except Exception as exc:
+        # 3. Gemini failed: down, timed out twice, key rejected, ...
+        log.exception("run: Gemini failed")
+        return None, gemini_failed(exc)
+
+    # 4. The last message is Gemini's final reply, after all its tool calls.
+    answer = state["messages"][-1].text.strip()
+    if not answer:
+        log.error("run: Gemini gave an empty answer")
+        return None, "Gemini didn't give an answer."
+
+    # 5. Done.
+    log.info("run: answer: %s", answer)
+    return answer, None</code></pre>
+
+<ol class="steps">
+  <li><strong><code>agent.invoke(...)</code> runs the whole loop</strong> and only returns when it reaches
+  <code>__end__</code>. Its input is the starting state: a message list holding just your instruction.
+  <code>("user", instruction)</code> is LangChain's shorthand for a <code>HumanMessage</code>.</li>
+  <li><strong><code>recursion_limit</code></strong> is a safety stop. Every time a node runs counts as one step; past 25 steps
+  LangGraph gives up with a <code>GraphRecursionError</code>. Each round (model, then tools) is two steps, so 25 allows about
+  12 rounds. Without it, a confused model could loop forever, spending money each time.</li>
+  <li><strong><code>except Exception</code></strong> catches everything else that can go wrong: no internet, Gemini down,
+  key rejected, account out of credit. <code>log.exception</code> writes the full details to the log file.</li>
+  <li><strong>The answer is the last message.</strong> When the loop ends, the newest message is Gemini's final reply.
+  <code>.text</code> gets its words; <code>.strip()</code> trims spaces.</li>
+</ol>
+
+<div class="callout tip"><b>Where's the system prompt?</b>
+If you look inside <code>state["messages"]</code> after a run, the system prompt isn't there. <code>create_agent</code>
+keeps it separately and adds it to the front of every request to Gemini. In the hand-written version you'll see we have
+to put it in the list ourselves.</div>
+
+<!-- ============================================================ -->
+<h2 id="run2"><span class="num">7</span>run2(): the same loop by hand</h2>
+
+<p><code>run2</code> does exactly what the graph does, as an ordinary Python loop, so there's nothing hidden. First, two
+things it prepares once:</p>
+
+<div class="codehead"><span>agent.py</span><span>lines 63–64</span></div>
+<pre><code class="language-python">tools_by_name = {t.name: t for t in TOOLS}
+model_with_tools = llm.bind_tools(TOOLS)  # tells Gemini which tools exist and what arguments they take</code></pre>
+
+<ul>
+  <li><strong><code>tools_by_name</code></strong> is a lookup table, <code>{"add": add, "subtract": subtract, ...}</code>, so when
+  Gemini asks for <code>"divide"</code> we can find the function.</li>
+  <li><strong><code>bind_tools</code></strong> returns a version of the model that sends the four tool descriptions with
+  every request. Without it, Gemini wouldn't know the tools exist.</li>
+</ul>
+
+<h3>The loop</h3>
+<div class="codehead"><span>agent.py</span><span>lines 89–121</span></div>
+<pre><code class="language-python">def run2(instruction):
+    """The hand-written agent loop: ask Gemini, run the tools it asks for, repeat until it answers."""
+    log.info("run2: %s", instruction)
+    # 0. Start the conversation. Gemini sees all of it every time round, so it knows each result.
+    messages = [SystemMessage(SYSTEM_PROMPT), HumanMessage(instruction)]
+
+    for step in range(MAX_AGENT_STEPS):
+        # 1. Ask Gemini what to do next.
+        try:
+            reply = model_with_tools.invoke(messages)
+        except Exception as exc:  # Gemini down, timed out twice, key rejected, ...
+            log.exception("run2: Gemini failed")
+            return None, gemini_failed(exc)
+        messages.append(reply)
+
+        # 2. No tools asked for: this reply is the final answer.
+        if not reply.tool_calls:
+            answer = reply.text.strip()
+            if not answer:
+                log.error("run2: Gemini gave an empty answer")
+                return None, "Gemini didn't give an answer."
+            log.info("run2: answer after %d steps: %s", step + 1, answer)
+            return answer, None
+
+        # 3. Run each tool Gemini asked for, and add its result to the conversation.
+        for call in reply.tool_calls:
+            result = run_tool(call)
+            messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
+        # 4. Back to the top: Gemini sees the tool results and decides the next step.
+
+    # 5. It went round too many times: stop.
+    log.error("run2: took more than %d steps; stopped", MAX_AGENT_STEPS)
+    return None, "The agent took too many steps and was stopped. Try a shorter instruction."</code></pre>
+
+<p>Match it against the ReAct picture in chapter 3:</p>
+<ol class="steps" style="counter-reset: s -1">
+  <li><strong>Start the conversation</strong> with the system prompt and your instruction, both as messages.</li>
+  <li><strong>Think:</strong> <code>model_with_tools.invoke(messages)</code> sends the whole list to Gemini and returns its
+  reply, an <code>AIMessage</code>, which is added to the list.</li>
+  <li><strong>Finished?</strong> If <code>reply.tool_calls</code> is empty, Gemini has answered in words, and that's the result.</li>
+  <li><strong>Act and observe:</strong> otherwise, for each tool request, <code>run_tool</code> runs the tool, and the result goes
+  into the list as a <code>ToolMessage</code>, tagged with the request's <code>id</code>.</li>
+  <li><strong>Repeat:</strong> the <code>for</code> loop goes round again, and Gemini now sees the results.</li>
+  <li><strong>Safety stop:</strong> <code>range(MAX_AGENT_STEPS)</code> allows at most 25 trips round. Note this counts
+  requests to Gemini, whereas <code>run</code>'s limit counts graph steps, so <code>run2</code> allows more rounds before
+  giving up.</li>
+</ol>
+
+<h3>run_tool(): running one request safely</h3>
+<div class="codehead"><span>agent.py</span><span>lines 67–86</span></div>
+<pre><code class="language-python">def run_tool(call):
+    """Run one tool Gemini asked for, and return its result as text (an error message if it can't)."""
+    # 1. Find the tool Gemini asked for.
+    tool = tools_by_name.get(call["name"])
+    if tool is None:
+        log.error("run2: Gemini asked for a tool that doesn't exist: %s", call["name"])
+        return f"Error: there is no tool called {call['name']}."
+
+    # 2. Run it with the arguments Gemini sent.
+    try:
+        return tool.invoke(call["args"])
+    except ValidationError as exc:
+        # 3. Bad arguments, eg. a word instead of a number: say what's wrong, so Gemini can fix it.
+        problems = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+        log.error("run2: %s%s: bad arguments: %s", call["name"], call["args"], problems)
+        return f"Error: {call['name']} got bad arguments ({problems}). Fix them and try again."
+    except Exception as exc:
+        # 4. Anything else went wrong inside the tool.
+        log.error("run2: %s%s failed: %s", call["name"], call["args"], exc)
+        return f"Error: {call['name']} failed ({type(exc).__name__}: {exc})."</code></pre>
+
+<p>A tool request is a small dictionary, for example <code>{"name": "divide", "args": {"a": 7, "b": 3.5}, "id": "call_…"}</code>.
+Three things can go wrong, and each is turned into a message Gemini can read instead of a crash:</p>
+<ul>
+  <li><strong>No such tool</strong>, for instance if Gemini invents <code>power</code>.</li>
+  <li><strong>Bad inputs</strong>, such as <code>a = "two"</code>. The tool checks its inputs before running (via a library
+  called pydantic) and raises a <code>ValidationError</code>, which we turn into one line per problem, so Gemini can correct
+  itself and try again.</li>
+  <li><strong>Anything else</strong> that goes wrong inside the tool.</li>
+</ul>
+<p>This is the main thing <code>create_agent</code> was doing for us silently, as the next chapter explains.</p>
+
+<!-- ============================================================ -->
+<h2 id="langchain"><span class="num">8</span>What LangChain adds</h2>
+
+<p>It's tempting to think <code>run2</code> uses no LangChain at all. It actually uses quite a lot: only the
+<em>loop</em> is hand-written. Here are the layers:</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 360" role="img" aria-labelledby="fig5t">
+  <title id="fig5t">Three layers: Gemini's API, LangChain building blocks used by both versions, and create_agent used only by run</title>
+  <!-- layer 3 -->
+  <rect x="150" y="16" width="590" height="104" rx="14" class="b-gem"/>
+  <text x="170" y="44" class="d-text">create_agent: the loop, ready-made</text>
+  <text x="170" y="68" class="d-sub">the graph (model ⇄ tools) · tool runner with error handling · parallel tools</text>
+  <text x="170" y="88" class="d-sub">structured answers · middleware · streaming · memory between runs</text>
+  <text x="170" y="108" class="d-sub">step limit · pausing for human approval</text>
+  <!-- layer 2 -->
+  <rect x="150" y="132" width="590" height="104" rx="14" class="b-prog"/>
+  <text x="170" y="160" class="d-text">LangChain building blocks</text>
+  <text x="170" y="184" class="d-sub">ChatGoogleGenerativeAI (talks to Gemini) · bind_tools · @tool</text>
+  <text x="170" y="204" class="d-sub">SystemMessage / HumanMessage / AIMessage / ToolMessage</text>
+  <text x="170" y="224" class="d-sub">the same code works with other models (Claude, GPT, ...)</text>
+  <!-- layer 1 -->
+  <rect x="150" y="248" width="590" height="96" rx="14" class="b-cfg"/>
+  <text x="170" y="276" class="d-text">Google's Gemini API</text>
+  <text x="170" y="300" class="d-sub">web requests in Google's own format · function calling · retries and timeouts</text>
+  <text x="170" y="320" class="d-sub">what you'd write against with no LangChain at all</text>
+  <!-- brackets -->
+  <path d="M120 22 V230" class="d-line s-gem" stroke-width="3"/>
+  <path d="M120 22 H134 M120 230 H134" class="d-line s-gem" stroke-width="3"/>
+  <text x="100" y="128" text-anchor="middle" class="d-text" transform="rotate(-90 100 128)">run()</text>
+  <path d="M60 138 V230" class="d-line s-prog" stroke-width="3"/>
+  <path d="M60 138 H74 M60 230 H74" class="d-line s-prog" stroke-width="3"/>
+  <text x="40" y="184" text-anchor="middle" class="d-text" transform="rotate(-90 40 184)">run2()</text>
+</svg>
+</div>
+<figcaption><code>run()</code> uses the top two layers. <code>run2()</code> uses only the middle one and writes the loop
+itself. Both sit on Google's API.</figcaption>
+</figure>
+
+<h3>What both versions get from LangChain</h3>
+<ul>
+  <li><strong><code>ChatGoogleGenerativeAI</code></strong> turns the message list into Google's request format, sends it,
+  waits, applies the timeout and retry settings, and turns Gemini's reply back into an <code>AIMessage</code> with tidy
+  <code>tool_calls</code>.</li>
+  <li><strong><code>@tool</code></strong> turns a plain Python function into a tool description, from its name, its
+  docstring and its type hints (chapter 9 shows the result).</li>
+  <li><strong><code>bind_tools</code></strong> attaches those descriptions to every request.</li>
+  <li><strong>Message classes</strong> give every entry in the conversation a clear role.</li>
+  <li><strong>Portability:</strong> swap <code>ChatGoogleGenerativeAI</code> for another model's class and the rest of the
+  code is unchanged.</li>
+</ul>
+
+<h3>What only create_agent gives you</h3>
+<div class="table-scroll">
+<table>
+  <tr><th>Feature</th><th>What it means</th><th>Hand-written loop</th></tr>
+  <tr><td>The loop itself</td><td>Ask, run tools, repeat, stop on an answer</td><td>You write it (~25 lines)</td></tr>
+  <tr><td>Tool errors handled</td><td>An unknown tool name or bad inputs become a message Gemini can read and fix. (We checked: LangChain replies <em>"power is not a valid tool, try one of [add, subtract, multiply, divide]"</em>.)</td><td>You write it (<code>run_tool</code>)</td></tr>
+  <tr><td>Parallel tools</td><td>If Gemini asks for several tools in one reply, they run at the same time</td><td>Ours runs them one after another</td></tr>
+  <tr><td>Step limit</td><td><code>recursion_limit</code> stops runaway loops</td><td>You write it (<code>range(MAX_AGENT_STEPS)</code>)</td></tr>
+  <tr><td>Structured answers</td><td><code>response_format=</code> makes the final answer fit a fixed shape, checked automatically (the shopping agent uses this)</td><td>Hard to do well</td></tr>
+  <tr><td>Streaming</td><td><code>agent.stream(...)</code> shows each step as it happens</td><td>You'd add prints</td></tr>
+  <tr><td>Memory between runs</td><td>A "checkpointer" saves the conversation so a later run can carry on from it</td><td>You'd store the list yourself</td></tr>
+  <tr><td>Human approval</td><td>Pause before a tool runs and wait for a person to say yes</td><td>Significant work</td></tr>
+  <tr><td>Middleware</td><td>Plug-ins that wrap each step. The installed version includes, among others,
+  <code>SummarizationMiddleware</code> (shorten long conversations), <code>HumanInTheLoopMiddleware</code>,
+  <code>ModelCallLimitMiddleware</code> and <code>ToolCallLimitMiddleware</code> (spending caps),
+  <code>ModelFallbackMiddleware</code> (switch model if one fails), <code>ModelRetryMiddleware</code>,
+  <code>ToolRetryMiddleware</code> and <code>PIIMiddleware</code> (personal data)</td><td>You'd write each one</td></tr>
+</table>
+</div>
+
+<div class="callout tip"><b>So which should you use?</b>
+For this calculator, either. Its tools never crash and its answer is plain text, so it needs none of the extras, and the
+hand-written loop lets you see every step. As soon as you want structured answers, streaming, memory or approvals,
+<code>create_agent</code> saves you a lot of code. The two produce the same results, as the side-by-side output shows.</div>
+
+<!-- ============================================================ -->
+<h2 id="tools"><span class="num">9</span>tools.py: the arithmetic</h2>
+
+<p>Each tool is a short Python function with the <code>@tool</code> decorator on top:</p>
+
+<div class="codehead"><span>tools.py</span><span>lines 56–69</span></div>
+<pre><code class="language-python">@tool
+def divide(a: float, b: float) -&gt; str:
+    """Divide a by b: a / b. Returns an error if b is zero."""
+    # 1. Calculate with exact decimals, and write the result as text.
+    try:
+        result = as_text(as_decimal(a) / as_decimal(b))
+    except (DivisionByZero, InvalidOperation):  # InvalidOperation: 0 / 0
+        # 2. Dividing by zero: return an error message for Gemini instead of crashing.
+        log.error("divide %s / %s: can't divide by zero", a, b)
+        return "Error: can't divide by zero."
+
+    # 3. Log it and hand it back to Gemini.
+    log.info("divide %s / %s = %s", a, b, result)
+    return result</code></pre>
+
+<h3>What Gemini sees</h3>
+<p><code>@tool</code> reads the function and builds a description of it. This is exactly what is sent to Gemini for
+<code>divide</code>, generated from the code above:</p>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 760 250" role="img" aria-labelledby="fig6t">
+  <title id="fig6t">How the parts of the divide function become its tool description</title>
+  <defs>
+    <marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker>
+  </defs>
+  <rect x="16" y="20" width="300" height="210" rx="14" class="b-prog"/>
+  <text x="34" y="48" class="d-text">The Python function</text>
+  <text x="34" y="86" class="d-mono">def divide(</text>
+  <text x="34" y="108" class="d-mono">    a: float, b: float</text>
+  <text x="34" y="130" class="d-mono">) -> str:</text>
+  <text x="34" y="160" class="d-mono">"""Divide a by b: a / b.</text>
+  <text x="34" y="180" class="d-mono">Returns an error if b is zero."""</text>
+
+  <rect x="444" y="20" width="300" height="210" rx="14" class="b-gem"/>
+  <text x="462" y="48" class="d-text">The tool description</text>
+  <text x="462" y="86" class="d-mono">name: "divide"</text>
+  <text x="462" y="108" class="d-mono">parameters: a: number, b: number</text>
+  <text x="462" y="128" class="d-mono">            (both required)</text>
+  <text x="462" y="160" class="d-mono">description: "Divide a by b: a / b.</text>
+  <text x="462" y="180" class="d-mono">  Returns an error if b is zero."</text>
+
+  <path d="M150 82 C 260 70, 340 70, 458 82" class="d-line" marker-end="url(#t1)"/>
+  <path d="M220 104 C 300 104, 360 104, 458 104" class="d-line" marker-end="url(#t1)"/>
+  <path d="M300 170 C 350 170, 400 170, 458 170" class="d-line" marker-end="url(#t1)"/>
+  <text x="380" y="62" text-anchor="middle" class="d-label">function name</text>
+  <text x="380" y="98" text-anchor="middle" class="d-label">type hints</text>
+  <text x="380" y="162" text-anchor="middle" class="d-label">docstring</text>
+</svg>
+</div>
+<figcaption>The name, the type hints and the docstring are all Gemini knows about the tool. Clear names and docstrings
+aren't decoration here: they're the instructions for using it.</figcaption>
+</figure>
+
+<h3>Why exact decimals</h3>
+<p>Computers normally store numbers like 0.1 in binary, which can't represent them exactly, so simple sums come out
+slightly wrong. Python's <code>Decimal</code> type works in base ten, the way we write numbers:</p>
+
+<div class="compare">
+  <div class="panel"><span class="tag r-human">ordinary numbers (float)</span>
+<pre class="nohighlight">0.1 + 0.2
+→ 0.30000000000000004</pre></div>
+  <div class="panel"><span class="tag r-tool">Decimal, as the tools use</span>
+<pre class="nohighlight">Decimal("0.1") + Decimal("0.2")
+→ 0.3</pre></div>
+</div>
+
+<div class="codehead"><span>tools.py</span><span>lines 13–23</span></div>
+<pre><code class="language-python">def as_decimal(number):
+    """The number as an exact decimal: 3.5 stays 3.5."""
+    return Decimal(str(number))
+
+
+def as_text(number):
+    """A decimal written plainly: 2 not 2.0, 2.5 not 2.50, 1000000 not 1E+6."""
+    # 1. Drop trailing zeros, and write it out in full rather than as 1E+6.
+    text = format(number.normalize(), "f")
+    # 2. Show "negative zero" (eg. from -0.0 * 5) as plain 0.
+    return "0" if text == "-0" else text</code></pre>
+
+<ul>
+  <li><strong><code>as_decimal</code></strong> goes through <code>str(number)</code> first, because converting the float
+  directly would copy its binary inexactness into the decimal.</li>
+  <li><strong><code>as_text</code></strong> writes the result the way a person would: <code>normalize()</code> removes trailing
+  zeros, and <code>"f"</code> avoids scientific notation like <code>1E+6</code>. The <code>-0</code> check handles a quirk:
+  multiplying −0.0 by 5 gives "negative zero".</li>
+  <li><strong>Tools return text, never crash.</strong> Dividing by zero returns <code>"Error: can't divide by zero."</code>
+  as an ordinary result, which Gemini then explains, as its instructions say.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="config"><span class="num">10</span>config.py: setup</h2>
+
+<p>The first time any file does <code>from config import ...</code>, Python runs <code>config.py</code> once, top to bottom.
+It does four things.</p>
+
+<h3>1. The log file</h3>
+<div class="codehead"><span>config.py</span><span>lines 13–21</span></div>
+<pre><code class="language-python"># 1. The log file: every log.info / log.error line goes to logs/calculator_agent.log.
+LOG_FILE = PROJECT_DIR / "logs" / "calculator_agent.log"
+log = logging.getLogger("calculator_agent")
+if not log.handlers:  # don't add a second handler if a notebook re-imports this
+    LOG_FILE.parent.mkdir(exist_ok=True)
+    handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(module)s: %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)</code></pre>
+<p>Every <code>log.info(...)</code> and <code>log.error(...)</code> in the program writes a timestamped line to
+<code>logs/calculator_agent.log</code>. "Rotating" means that when the file reaches 1 MB it's renamed and a new one started,
+keeping the last three, so it never grows without limit.</p>
+
+<h3>2. The key</h3>
+<div class="codehead"><span>config.py</span><span>lines 23–28</span></div>
+<pre><code class="language-python"># 2. The key, from .env (git-ignored) or the environment. Stop at once if there isn't one.
+load_dotenv(PROJECT_DIR / ".env")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+if not GOOGLE_API_KEY:
+    log.error("Missing key: GOOGLE_API_KEY")
+    sys.exit("error: GOOGLE_API_KEY not set. Put it in .env (see .env.example).")</code></pre>
+<p>The API key is the password Google uses to know who's asking and whom to bill. It lives in a file called
+<code>.env</code> next to the code, which <code>.gitignore</code> keeps out of version control, so it's never published by
+accident. <code>load_dotenv</code> reads that file into the environment. If there's no key, the program stops at once with
+a clear message, rather than failing confusingly later.</p>
+
+<h3>3. The model and the step limit</h3>
+<div class="codehead"><span>config.py</span><span>lines 30–32</span></div>
+<pre><code class="language-python"># 3. Which Gemini model, and how many steps an agent may take.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-flash-latest"
+MAX_AGENT_STEPS = 25  # stops a run that loops</code></pre>
+<p><code>gemini-flash-latest</code> is a name Google keeps pointing at its current fast model. You can choose another by
+setting <code>GEMINI_MODEL</code> in <code>.env</code>.</p>
+
+<h3>4. The connection to Gemini</h3>
+<div class="codehead"><span>config.py</span><span>lines 34–37</span></div>
+<pre><code class="language-python"># 4. The connection to Gemini, shared by both agents: 60-second timeout; one retry on timeouts,
+#    rate limits and server errors.
+llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0, google_api_key=GOOGLE_API_KEY,
+                             timeout=60, max_retries=2)</code></pre>
+<ul>
+  <li><strong><code>temperature=0</code></strong> makes Gemini's choices as consistent as possible. Higher values make it
+  more varied, which suits stories, not sums.</li>
+  <li><strong><code>timeout=60</code></strong>: give up on a request after 60 seconds instead of waiting forever.</li>
+  <li><strong><code>max_retries=2</code></strong> means two attempts in total, the first plus one retry. That's how this library
+  counts. It only retries failures that might succeed next time (a timeout, "too many requests", a server error), never a
+  rejected key.</li>
+</ul>
+<p>This one <code>llm</code> object is shared by both versions of the agent.</p>
+
+<!-- ============================================================ -->
+<h2 id="errors"><span class="num">11</span>When things go wrong</h2>
+
+<p>The rule throughout is <strong>nothing crashes</strong>: every failure becomes a message, either for Gemini (so it can
+explain or correct itself) or for you.</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>What happens</th><th>Who handles it</th><th>What you see</th></tr>
+  <tr><td>You divide by zero</td><td><code>divide</code> returns an error as its result</td><td>Gemini explains that it can't be done</td></tr>
+  <tr><td>Gemini asks for a tool that doesn't exist, or sends bad inputs</td><td><code>run_tool</code> (run2) or LangChain (run) tells Gemini</td><td>Usually nothing: Gemini corrects itself</td></tr>
+  <tr><td>A request times out or Google is overloaded</td><td>The connection retries once</td><td>Nothing, if the retry works</td></tr>
+  <tr><td>Gemini can't be reached, rejects the key, or the account has no credit</td><td><code>except Exception</code> in run / run2</td><td><code>error: Gemini failed: …</code></td></tr>
+  <tr><td>The agent goes round too many times</td><td>The step limit</td><td><code>error: The agent took too many steps…</code></td></tr>
+  <tr><td>No key in <code>.env</code></td><td><code>config.py</code>, at start-up</td><td><code>error: GOOGLE_API_KEY not set…</code></td></tr>
+</table>
+</div>
+
+<h3>Reading the log</h3>
+<p>The log shows each version's steps, which is how you can confirm Gemini really used the tools. From the real run:</p>
+<pre class="nohighlight">INFO agent: run: add 2 to 5 then divide the result by 3.5
+INFO tools: add 2.0 + 5.0 = 7
+INFO tools: divide 7.0 / 3.5 = 2
+INFO agent: run: answer: First, I added 2 to 5 to get 7, and then I divided that result by 3.5. The final result is 2.
+INFO agent: run2: add 2 to 5 then divide the result by 3.5
+INFO tools: add 2.0 + 5.0 = 7
+INFO tools: divide 7.0 / 3.5 = 2
+INFO agent: run2: answer after 3 steps: First, I added 2 to 5 to get 7, and then I divided that result by 3.5 to arrive at the final answer of 2.</pre>
+<p>"After 3 steps" means three requests to Gemini: two that asked for tools, and one that answered. Each took a few
+seconds, which is why a calculation takes several seconds even though the arithmetic is instant.</p>
+
+<!-- ============================================================ -->
+<h2 id="setup"><span class="num">12</span>Running it yourself</h2>
+
+<ol class="steps">
+  <li><strong>Get a Gemini API key</strong> at <a href="https://aistudio.google.com/apikey">Google AI Studio</a>: sign in,
+  click <em>Create API key</em>, and copy it. Keep it private.</li>
+  <li><strong>Create the environment and install the libraries</strong>, from inside the <code>calculatoragent</code> folder:
+<pre class="nohighlight">python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt</pre>
+  A <em>virtual environment</em> (<code>.venv</code>) is a private copy of Python for this project, so its libraries don't
+  clash with other projects'.</li>
+  <li><strong>Add the key:</strong> <code>cp .env.example .env</code>, then put your key after <code>GOOGLE_API_KEY=</code>
+  in <code>.env</code>.</li>
+  <li><strong>Run it:</strong> <code>.venv/bin/python main.py</code>, and type <code>quit</code> when you're done. Or feed it
+  an instruction without typing: <code>.venv/bin/python main.py &lt;&lt;&lt; 'multiply 3 by 4'</code>.</li>
+</ol>
+<div class="callout warn"><b>Each calculation costs a little.</b>
+Every round is a request to Gemini, and each instruction runs through both versions, so "add then divide" makes six
+requests. Gemini's free tier has limits; see Google's pricing page for current figures.</div>
+
+<!-- ============================================================ -->
+<h2 id="glossary"><span class="num">13</span>Glossary</h2>
+<dl class="glossary">
+  <dt>Agent</dt><dd>A program that lets a language model decide which actions to take, carries them out, and repeats until the job is done.</dd>
+  <dt>API key</dt><dd>A secret string that identifies you to a service like Gemini, for permission and billing.</dd>
+  <dt>bind_tools</dt><dd>LangChain method that attaches tool descriptions to every request sent to a model.</dd>
+  <dt>create_agent</dt><dd>LangChain's ready-made agent: builds the ReAct loop as a LangGraph graph.</dd>
+  <dt>Decimal</dt><dd>Python's exact base-ten number type, used so that 0.1 + 0.2 is exactly 0.3.</dd>
+  <dt>Function calling / tool calling</dt><dd>A model replying with a structured request to run a named tool with given inputs, instead of with text.</dd>
+  <dt>Gemini</dt><dd>Google's family of language models; this program uses <code>gemini-flash-latest</code>.</dd>
+  <dt>Graph, node, edge</dt><dd>LangGraph's way of describing a process: nodes do work, edges say which node comes next.</dd>
+  <dt>LangChain</dt><dd>Open-source Python library of building blocks for programs that use language models.</dd>
+  <dt>LangGraph</dt><dd>LangChain's companion library for building step-by-step processes as graphs; <code>create_agent</code> is built on it.</dd>
+  <dt>Language model (LLM)</dt><dd>A program trained on huge amounts of text that continues a conversation; good with language, unreliable at arithmetic.</dd>
+  <dt>Message</dt><dd>One entry in the conversation: SystemMessage, HumanMessage, AIMessage or ToolMessage.</dd>
+  <dt>Middleware</dt><dd>Plug-ins for <code>create_agent</code> that wrap each step, for example to cap spending or summarise long conversations.</dd>
+  <dt>ReAct</dt><dd>"Reason + Act": the pattern of thinking, using a tool, looking at the result, and repeating.</dd>
+  <dt>Recursion limit</dt><dd>The maximum number of graph steps <code>create_agent</code> will take before stopping.</dd>
+  <dt>State</dt><dd>The data a LangGraph graph passes from node to node; here, the list of messages.</dd>
+  <dt>System prompt</dt><dd>Standing instructions sent at the start of every request, unseen by the user.</dd>
+  <dt>Temperature</dt><dd>How varied a model's replies are; 0 means as consistent as possible.</dd>
+  <dt>Tool</dt><dd>A function the model may ask the program to run, described by its name, inputs and docstring.</dd>
+  <dt>Virtual environment (.venv)</dt><dd>A private copy of Python and its libraries for one project.</dd>
+</dl>
+
+<footer>
+  Written for the <code>calculatoragent</code> folder; code excerpts match the source files as of this guide.
+  The example run, the message list, the tool description and the log lines are from real runs of this code.
+</footer>
+
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script>
+  try { if (window.hljs) { document.querySelectorAll('pre code.language-python').forEach(function (el) { hljs.highlightElement(el); }); } } catch (e) {}
+</script>
+</body>
+</html>

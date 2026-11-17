@@ -1,0 +1,11 @@
+# Keys: never commit them
+.env
+
+# Logs and Python leftovers
+logs/
+__pycache__/
+*.pyc
+.venv/
+
+# macOS Finder files
+.DS_Store
